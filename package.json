@@ -1,0 +1,79 @@
+{
+  "name": "i18n-kyle",
+  "displayName": "i18n Kyle：Vue 中文提取",
+  "description": "从 Vue 文件的 template 提取中文，生成 src/i18n/lang 下的 cn.js 与 en.js。",
+  "version": "0.1.0",
+  "publisher": "kyle",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "vue",
+    "i18n",
+    "中文",
+    "chinese",
+    "locale",
+    "cursor"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "i18nKyle.extractFromVue",
+        "title": "提取 Template 中文到 i18n",
+        "category": "i18n Kyle"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "i18nKyle.extractFromVue",
+          "when": "resourceExtname == .vue",
+          "group": "navigation@20"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "i18nKyle.extractFromVue",
+          "when": "resourceExtname == .vue",
+          "group": "navigation@20"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "i18n Kyle",
+      "properties": {
+        "i18nKyle.i18nFunction": {
+          "type": "string",
+          "default": "$t",
+          "description": "替换 template 中文时使用的函数名，例如 $t 会生成 {{ $t('模块.键') }}。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "test": "node esbuild.test.js && node --test dist-test/extract.test.js",
+    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository",
+    "publish:vscode": "vsce publish --no-dependencies --allow-missing-repository",
+    "publish:cursor": "ovsx publish --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/vscode": "^1.80.0",
+    "@vscode/vsce": "^3.6.0",
+    "@vue/compiler-dom": "^3.5.13",
+    "esbuild": "^0.25.0",
+    "ovsx": "^0.10.5",
+    "pinyin-pro": "^3.27.0",
+    "typescript": "^5.8.0"
+  }
+}
