@@ -2,7 +2,7 @@
   "name": "i18n-kyle",
   "displayName": "i18n Kyle：Vue 中文提取",
   "description": "从 Vue 文件的 template 提取中文，生成 src/i18n/lang 下的 cn.js 与 en.js。",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "Vangek",
   "license": "MIT",
   "icon": "media/icon.png",
