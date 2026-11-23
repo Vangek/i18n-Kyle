@@ -53,36 +53,6 @@ npm run build
 
 在 VS Code 或 Cursor 里打开本项目，按 F5（运行扩展），会打开一个扩展开发窗口。在那个窗口里打开任意 Vue 项目即可试用。
 
-## 打包
+## 打包与发布
 
-```bash
-npm run package
-```
-
-会生成 `i18n-kyle-0.1.0.vsix`。可以把它拖进 VS Code 或 Cursor 的扩展面板安装。
-
-发布前把 `package.json` 里的 `publisher` 改成你自己的发布者 ID。VS Code 商店和 Open VSX 使用同一个 `publisher` 和 `name`，扩展 ID 才一致。
-
-## 发布到 VS Code 扩展商店
-
-1. 用 Microsoft 账号登录 [Visual Studio Marketplace 管理页](https://marketplace.visualstudio.com/manage)，创建一个 Publisher。ID 一旦创建不能修改。
-2. 把 `package.json` 的 `publisher` 设成这个 ID。
-3. 推荐用 GitHub Actions 的 Trusted Publishing：在发布者页面创建 Trusted Publishing 策略，工作流里执行 `vsce publish --no-dependencies --allow-missing-repository`。如果还没有 GitHub 仓库，可以先用 Azure DevOps 的 Marketplace PAT 本地执行 `npm run publish:vscode`。全局 PAT 将在 2027-01-27 后失效，长期发布请改用 Trusted Publishing。
-4. 也可以在管理页手动上传 `npm run package` 生成的 vsix。
-
-## 发布到 Cursor 扩展商店
-
-Cursor 的扩展商店来自 [Open VSX](https://open-vsx.org/)。发布到 Open VSX 后，Cursor 才会在扩展搜索里显示它。
-
-1. 注册 Eclipse 账号，并填好与 Open VSX 相同的 GitHub 用户名。
-2. 用 GitHub 登录 Open VSX，在个人设置里关联 Eclipse 账号并同意 Publisher Agreement。
-3. 在 Open VSX 生成 Access Token。
-4. 创建与 `publisher` 同名的命名空间，并发布同一份 vsix：
-
-```bash
-npx ovsx create-namespace kyle -p "$OVSX_PAT"
-npm run package
-npx ovsx publish i18n-kyle-0.1.0.vsix -p "$OVSX_PAT"
-```
-
-`npm run publish:cursor` 会在已登录的前提下直接发布当前目录。Open VSX 要求扩展带有许可证，本项目使用 MIT。
+VS Code 的 publisher 是 `KaiWang`，Cursor 的 publisher 是 `Vangek`。执行 `npm run package` 时会先要求选择目标商店。完整步骤写在项目里的 `PUBLISH.md`。

@@ -3,7 +3,7 @@
   "displayName": "i18n Kyle：Vue 中文提取",
   "description": "从 Vue 文件的 template 提取中文，生成 src/i18n/lang 下的 cn.js 与 en.js。",
   "version": "0.1.0",
-  "publisher": "kyle",
+  "publisher": "Vangek",
   "license": "MIT",
   "icon": "media/icon.png",
   "engines": {
@@ -62,9 +62,7 @@
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "test": "node esbuild.test.js && node --test dist-test/extract.test.js",
-    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository",
-    "publish:vscode": "vsce publish --no-dependencies --allow-missing-repository",
-    "publish:cursor": "ovsx publish --no-dependencies"
+    "package": "node scripts/package-target.js"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

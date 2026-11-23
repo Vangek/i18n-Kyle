@@ -2,6 +2,7 @@
 .github/**
 src/**
 scripts/**
+PUBLISH.md
 node_modules/**
 dist-test/**
 **/*.ts
