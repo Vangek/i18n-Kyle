@@ -8,6 +8,7 @@ import { parseLangFile, valueToKeyMap } from './langFile'
 import { assertSafeModuleName, defaultModuleName, findProjectRoot, resolveLangRoot, toDisplayPath } from './paths'
 import { applyReplacements, assertI18nFunction, buildCall, occurrenceInsert } from './replace'
 import type { ChineseEntry } from './types'
+import { translateWithDeepSeek } from './deepseek'
 import { getWebviewHtml } from './webview'
 import { writeLangModule, WriterError } from './writer'
 
@@ -26,12 +27,15 @@ let panel: vscode.WebviewPanel | undefined
 let session: Session | undefined
 let sessionSeq = 0
 let pendingInit: Record<string, unknown> | undefined
+let extensionContext: vscode.ExtensionContext | undefined
 
 export function activate(context: vscode.ExtensionContext): void {
+  extensionContext = context
   context.subscriptions.push(
     vscode.commands.registerCommand('i18nKyle.extractFromVue', (uri?: vscode.Uri) => {
       return runExtract(uri, context)
     }),
+    vscode.commands.registerCommand('i18nKyle.setDeepSeekApiKey', () => setDeepSeekApiKey(context)),
   )
 }
 
@@ -180,27 +184,15 @@ async function translateEmptyEntries(chosen: Array<{ id?: string }>): Promise<vo
       .map((id) => current.entries.find((entry) => entry.id === id))
       .filter((entry): entry is ChineseEntry => Boolean(entry))
     if (entries.length === 0) throw new Error('没有需要翻译的条目。')
-
-    if (!vscode.lm?.selectChatModels) {
-      throw new Error('当前 VS Code 版本不支持语言模型翻译，请升级 VS Code 或手动填写英文。')
-    }
-    const models = await vscode.lm.selectChatModels()
-    const model = models[0]
-    if (!model) {
-      throw new Error('当前没有可用的 VS Code 语言模型。请安装并登录支持语言模型的扩展后重试，或手动填写英文。')
+    if (!extensionContext) throw new Error('扩展尚未完成初始化，请重新运行提取命令。')
+    const apiKey = await extensionContext.secrets.get('i18nKyle.deepseek.apiKey')
+    if (!apiKey) {
+      throw new Error('尚未配置 DeepSeek API Key。请先运行命令「i18n Kyle: 设置 DeepSeek API Key」。')
     }
 
     const translations: Array<{ id: string; en: string }> = []
     for (const entry of entries) {
-      const response = await model.sendRequest([
-        vscode.LanguageModelChatMessage.User(
-          `Translate this Chinese UI text into concise, natural English. Preserve placeholders and formatting. Return only the translation, with no quotes or explanation.\n\n${entry.zh}`,
-        ),
-      ])
-      let translation = ''
-      for await (const part of response.text) translation += part
-      translation = translation.trim().replace(/^["']|["']$/g, '')
-      if (!translation) throw new Error(`语言模型没有返回「${entry.zh}」的英文翻译。`)
+      const translation = await translateWithDeepSeek(entry.zh, apiKey)
       translations.push({ id: entry.id, en: translation })
     }
     void panel.webview.postMessage({ type: 'translations', sessionId: current.id, entries: translations })
@@ -208,6 +200,22 @@ async function translateEmptyEntries(chosen: Array<{ id?: string }>): Promise<vo
     const text = errorMessage(error)
     void panel.webview.postMessage({ type: 'error', message: text })
   }
+}
+
+async function setDeepSeekApiKey(context: vscode.ExtensionContext): Promise<void> {
+  const apiKey = await vscode.window.showInputBox({
+    title: '配置 DeepSeek 翻译',
+    prompt: '输入 DeepSeek API Key',
+    password: true,
+    ignoreFocusOut: true,
+  })
+  if (apiKey === undefined) return
+  if (!apiKey.trim()) {
+    void vscode.window.showErrorMessage('API Key 不能为空。')
+    return
+  }
+  await context.secrets.store('i18nKyle.deepseek.apiKey', apiKey.trim())
+  void vscode.window.showInformationMessage('DeepSeek API Key 已安全保存。')
 }
 
 async function regenerate(moduleName: string): Promise<void> {

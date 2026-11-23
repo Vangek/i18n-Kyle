@@ -29,6 +29,11 @@
         "command": "i18nKyle.extractFromVue",
         "title": "提取 Template 中文到 i18n",
         "category": "i18n Kyle"
+      },
+      {
+        "command": "i18nKyle.setDeepSeekApiKey",
+        "title": "设置 DeepSeek API Key",
+        "category": "i18n Kyle"
       }
     ],
     "menus": {

@@ -10,6 +10,7 @@ import { assertSafeModuleName, defaultModuleName, findProjectRoot, resolveLangRo
 import { applyReplacements, buildCall, occurrenceInsert } from '../replace'
 import { planLangFiles, writeLangModule, WriterError } from '../writer'
 import { getWebviewHtml } from '../webview'
+import { parseDeepSeekResponse } from '../deepseek'
 
 const vueSource = [
   '<template>',
@@ -264,7 +265,7 @@ test('提取面板页面包含命令需要的控件', () => {
   assert.match(html, /acquireVsCodeApi/)
   assert.match(html, /写入语言文件/)
   assert.match(html, /语言文件名/)
-  assert.match(html, /AI 翻译空英文/)
+  assert.match(html, /DeepSeek 翻译空英文/)
 })
 
 test('已有中文会复用原来的键', () => {
@@ -274,4 +275,12 @@ test('已有中文会复用原来的键', () => {
     new Set(['brandName']),
   )
   assert.deepEqual(keys, ['brandName', 'kaiShiTanSuo'])
+})
+
+test('解析 DeepSeek 翻译响应并清理引号', () => {
+  assert.equal(
+    parseDeepSeekResponse('{"choices":[{"message":{"content":"\\\"Start here\\\""}}]}'),
+    'Start here',
+  )
+  assert.throws(() => parseDeepSeekResponse('{"choices":[]}'), /没有返回英文/)
 })

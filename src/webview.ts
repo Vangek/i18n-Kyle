@@ -102,7 +102,7 @@ export function getWebviewHtml(nonce: string): string {
     <span>同时把 template 中的中文替换为 <code id="sample"></code>。可在编辑器里撤销。</span>
   </label>
   <div class="toolbar">
-    <button id="translateEn" type="button">AI 翻译空英文</button>
+    <button id="translateEn" type="button">DeepSeek 翻译空英文</button>
     <button id="regen" type="button">重新生成键名</button>
     <button id="copyEn" type="button">把中文复制到 English</button>
   </div>
@@ -205,7 +205,7 @@ export function getWebviewHtml(nonce: string): string {
         return
       }
       translateBtn.disabled = true
-      statusEl.innerHTML = '<div class="muted">正在请求语言模型翻译……</div>'
+      statusEl.innerHTML = '<div class="muted">正在请求 DeepSeek 翻译……</div>'
       vscode.postMessage({ type: 'translate', sessionId: state.sessionId, entries })
     }
     translateBtn.addEventListener('click', translateEmptyEnglish)
