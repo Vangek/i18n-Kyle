@@ -42,6 +42,7 @@ export function getWebviewHtml(nonce: string): string {
     .check { display: flex; gap: 8px; align-items: flex-start; font-weight: 400; margin: 8px 0 14px; }
     .check input { margin-top: 3px; }
     .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    .toolbar button { min-height: 28px; }
     button {
       height: 28px;
       padding: 0 12px;
@@ -101,6 +102,7 @@ export function getWebviewHtml(nonce: string): string {
     <span>同时把 template 中的中文替换为 <code id="sample"></code>。可在编辑器里撤销。</span>
   </label>
   <div class="toolbar">
+    <button id="translateEn" type="button">AI 翻译空英文</button>
     <button id="regen" type="button">重新生成键名</button>
     <button id="copyEn" type="button">把中文复制到 English</button>
   </div>
@@ -129,6 +131,7 @@ export function getWebviewHtml(nonce: string): string {
     const sampleEl = document.getElementById('sample')
     const rowsEl = document.getElementById('rows')
     const submitBtn = document.getElementById('submit')
+    const translateBtn = document.getElementById('translateEn')
     let state = null
 
     function escapeHtml(value) {
@@ -173,8 +176,14 @@ export function getWebviewHtml(nonce: string): string {
       })
       renderPath()
       renderSample()
-      statusEl.innerHTML = ''
+      translateBtn.disabled = false
       submitBtn.disabled = false
+      if (state.autoTranslate) {
+        state.autoTranslate = false
+        translateEmptyEnglish()
+      } else {
+        statusEl.innerHTML = ''
+      }
     }
 
     moduleInput.addEventListener('input', () => { renderPath(); renderSample() })
@@ -186,6 +195,20 @@ export function getWebviewHtml(nonce: string): string {
       if (!state) return
       vscode.postMessage({ type: 'regenerate', sessionId: state.sessionId, moduleName: moduleInput.value })
     })
+    function translateEmptyEnglish() {
+      if (!state) return
+      const entries = [...rowsEl.querySelectorAll('tr')]
+        .filter((row) => !row.querySelector('.en').value.trim())
+        .map((row) => ({ id: row.dataset.id }))
+      if (entries.length === 0) {
+        statusEl.innerHTML = '<div class="ok">英文栏已经填写完成。</div>'
+        return
+      }
+      translateBtn.disabled = true
+      statusEl.innerHTML = '<div class="muted">正在请求语言模型翻译……</div>'
+      vscode.postMessage({ type: 'translate', sessionId: state.sessionId, entries })
+    }
+    translateBtn.addEventListener('click', translateEmptyEnglish)
     document.getElementById('copyEn').addEventListener('click', () => {
       ;[...rowsEl.querySelectorAll('tr')].forEach((row) => {
         const en = row.querySelector('.en')
@@ -229,8 +252,19 @@ export function getWebviewHtml(nonce: string): string {
         renderSample()
       }
       if (message.type === 'error') {
+        translateBtn.disabled = false
         submitBtn.disabled = false
         statusEl.innerHTML = '<div class="error">' + escapeHtml(message.message) + '</div>'
+      }
+      if (message.type === 'translations' && state && message.sessionId === state.sessionId) {
+        const translated = new Map(message.entries.map((entry) => [entry.id, entry.en]))
+        ;[...rowsEl.querySelectorAll('tr')].forEach((row) => {
+          const en = row.querySelector('.en')
+          const translation = translated.get(row.dataset.id)
+          if (translation && !en.value.trim()) en.value = translation
+        })
+        translateBtn.disabled = false
+        statusEl.innerHTML = '<div class="ok">英文翻译已回填，请检查后写入。</div>'
       }
       if (message.type === 'done') {
         submitBtn.disabled = false

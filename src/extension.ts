@@ -65,8 +65,10 @@ async function runExtract(uri: vscode.Uri | undefined, context: vscode.Extension
   const langRoot = resolveLangRoot(target.fsPath, projectRoot)
   const moduleName = defaultModuleName(target.fsPath)
   let existing: Awaited<ReturnType<typeof readEntries>>
+  let existingEnglish: Awaited<ReturnType<typeof readEntries>>
   try {
     existing = await readEntries(path.join(langRoot, moduleName, 'cn.js'))
+    existingEnglish = await readEntries(path.join(langRoot, moduleName, 'en.js'))
   } catch (error) {
     void vscode.window.showErrorMessage(errorMessage(error))
     return
@@ -77,6 +79,7 @@ async function runExtract(uri: vscode.Uri | undefined, context: vscode.Extension
   const currentEntries = existing ?? []
   const reserved = new Set(currentEntries.map((entry) => entry.key))
   const known = valueToKeyMap(currentEntries)
+  const englishByKey = new Map((existingEnglish ?? []).map((entry) => [entry.key, entry.value]))
   const keys = assignKeys(
     extracted.entries.map((entry) => entry.zh),
     known,
@@ -104,12 +107,13 @@ async function runExtract(uri: vscode.Uri | undefined, context: vscode.Extension
     langRootLabel: toDisplayPath(projectRoot, langRoot),
     i18nFunction: readI18nFunction(),
     replaceDefault: true,
+    autoTranslate: true,
     warnings: extracted.warnings,
     entries: extracted.entries.map((entry, index) => ({
       id: entry.id,
       key: keys[index],
       zh: entry.zh,
-      en: '',
+      en: englishByKey.get(keys[index]) ?? '',
       reused: known.get(entry.zh) === keys[index],
     })),
   }
@@ -158,8 +162,51 @@ async function onMessage(message: {
     await regenerate(String(message.moduleName ?? ''))
     return
   }
+  if (message.type === 'translate') {
+    await translateEmptyEntries(message.entries ?? [])
+    return
+  }
   if (message.type === 'submit') {
     await submit(message)
+  }
+}
+
+async function translateEmptyEntries(chosen: Array<{ id?: string }>): Promise<void> {
+  if (!session || !panel) return
+  const current = session
+  try {
+    const ids = [...new Set(chosen.map((item) => item.id).filter((id): id is string => Boolean(id)))]
+    const entries = ids
+      .map((id) => current.entries.find((entry) => entry.id === id))
+      .filter((entry): entry is ChineseEntry => Boolean(entry))
+    if (entries.length === 0) throw new Error('没有需要翻译的条目。')
+
+    if (!vscode.lm?.selectChatModels) {
+      throw new Error('当前 VS Code 版本不支持语言模型翻译，请升级 VS Code 或手动填写英文。')
+    }
+    const models = await vscode.lm.selectChatModels()
+    const model = models[0]
+    if (!model) {
+      throw new Error('当前没有可用的 VS Code 语言模型。请安装并登录支持语言模型的扩展后重试，或手动填写英文。')
+    }
+
+    const translations: Array<{ id: string; en: string }> = []
+    for (const entry of entries) {
+      const response = await model.sendRequest([
+        vscode.LanguageModelChatMessage.User(
+          `Translate this Chinese UI text into concise, natural English. Preserve placeholders and formatting. Return only the translation, with no quotes or explanation.\n\n${entry.zh}`,
+        ),
+      ])
+      let translation = ''
+      for await (const part of response.text) translation += part
+      translation = translation.trim().replace(/^["']|["']$/g, '')
+      if (!translation) throw new Error(`语言模型没有返回「${entry.zh}」的英文翻译。`)
+      translations.push({ id: entry.id, en: translation })
+    }
+    void panel.webview.postMessage({ type: 'translations', sessionId: current.id, entries: translations })
+  } catch (error) {
+    const text = errorMessage(error)
+    void panel.webview.postMessage({ type: 'error', message: text })
   }
 }
 

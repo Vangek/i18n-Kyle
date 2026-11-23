@@ -264,6 +264,7 @@ test('提取面板页面包含命令需要的控件', () => {
   assert.match(html, /acquireVsCodeApi/)
   assert.match(html, /写入语言文件/)
   assert.match(html, /语言文件名/)
+  assert.match(html, /AI 翻译空英文/)
 })
 
 test('已有中文会复用原来的键', () => {
