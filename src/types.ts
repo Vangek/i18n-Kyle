@@ -1,4 +1,4 @@
-export type OccurrenceKind = 'text' | 'attr' | 'interpolation' | 'expr'
+export type OccurrenceKind = 'text' | 'attr' | 'interpolation' | 'expr' | 'code'
 
 export interface Occurrence {
   kind: OccurrenceKind

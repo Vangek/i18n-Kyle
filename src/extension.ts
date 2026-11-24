@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import fs from 'fs/promises'
 import path from 'path'
 import * as vscode from 'vscode'
-import { extractChinese, ExtractError } from './extract'
+import { extractChinese, extractJavaScript, ExtractError } from './extract'
 import { assignKeys } from './keys'
 import { parseLangFile, valueToKeyMap } from './langFile'
 import { assertSafeModuleName, defaultModuleName, findProjectRoot, resolveLangRoot, toDisplayPath } from './paths'
@@ -44,23 +44,24 @@ export function deactivate(): void {
 }
 
 async function runExtract(uri: vscode.Uri | undefined, context: vscode.ExtensionContext): Promise<void> {
-  const target = resolveVueUri(uri)
+  const target = resolveSourceUri(uri)
   if (!target) {
-    void vscode.window.showWarningMessage('请先打开或在资源管理器中选中一个 .vue 文件。')
+    void vscode.window.showWarningMessage('请先打开或在资源管理器中选中一个 Vue 或 JavaScript 文件。')
     return
   }
 
   const document = await vscode.workspace.openTextDocument(target)
+  const vueFile = isVueFile(target.fsPath)
   let extracted: ReturnType<typeof extractChinese>
   try {
-    extracted = extractChinese(document.getText())
+    extracted = vueFile ? extractChinese(document.getText()) : extractJavaScript(document.getText())
   } catch (error) {
     void vscode.window.showErrorMessage(errorMessage(error))
     return
   }
   if (extracted.entries.length === 0) {
     const extra = extracted.warnings.length ? `\n${extracted.warnings.join('\n')}` : ''
-    void vscode.window.showInformationMessage(`template 中没有可提取的中文。${extra}`)
+    void vscode.window.showInformationMessage(`没有可提取的中文。${extra}`)
     return
   }
 
@@ -110,6 +111,7 @@ async function runExtract(uri: vscode.Uri | undefined, context: vscode.Extension
     defaultModule: moduleName,
     langRootLabel: toDisplayPath(projectRoot, langRoot),
     i18nFunction: readI18nFunction(),
+    syntax: vueFile ? 'vue' : 'js',
     replaceDefault: true,
     autoTranslate: true,
     warnings: extracted.warnings,
@@ -129,7 +131,7 @@ function ensurePanel(context: vscode.ExtensionContext): vscode.WebviewPanel {
     panel.reveal(vscode.ViewColumn.Beside, true)
     return panel
   }
-  panel = vscode.window.createWebviewPanel('i18nKyle.extract', '提取 Vue 中文', vscode.ViewColumn.Beside, {
+  panel = vscode.window.createWebviewPanel('i18nKyle.extract', '提取中文', vscode.ViewColumn.Beside, {
     enableScripts: true,
     retainContextWhenHidden: true,
   })
@@ -143,11 +145,21 @@ function ensurePanel(context: vscode.ExtensionContext): vscode.WebviewPanel {
   return panel
 }
 
-function resolveVueUri(uri: vscode.Uri | undefined): vscode.Uri | undefined {
-  if (uri && uri.fsPath.endsWith('.vue')) return uri
+const SOURCE_EXTENSIONS = new Set(['.vue', '.js', '.mjs', '.cjs'])
+
+function resolveSourceUri(uri: vscode.Uri | undefined): vscode.Uri | undefined {
+  if (uri && isSourceFile(uri.fsPath)) return uri
   const editor = vscode.window.activeTextEditor
-  if (editor && editor.document.uri.fsPath.endsWith('.vue')) return editor.document.uri
+  if (editor && isSourceFile(editor.document.uri.fsPath)) return editor.document.uri
   return undefined
+}
+
+function isSourceFile(file: string): boolean {
+  return SOURCE_EXTENSIONS.has(path.extname(file).toLowerCase())
+}
+
+function isVueFile(file: string): boolean {
+  return path.extname(file).toLowerCase() === '.vue'
 }
 
 async function onMessage(message: {
@@ -251,7 +263,7 @@ async function submit(message: {
     if (replace) {
       const document = await vscode.workspace.openTextDocument(current.uri)
       if (document.version !== current.version || document.getText() !== current.source) {
-        throw new Error('Vue 文件已变化，请重新执行提取。')
+        throw new Error('源文件已变化，请重新执行提取。')
       }
     }
     await assertLangFilesSaved(current.langRoot, moduleName)
@@ -281,12 +293,12 @@ async function submit(message: {
       const full = new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length))
       edit.replace(current.uri, full, next)
       const applied = await vscode.workspace.applyEdit(edit)
-      if (!applied) throw new Error('语言文件已写入，但替换 Vue 文件失败。')
+      if (!applied) throw new Error('语言文件已写入，但替换源文件失败。')
     }
 
     const cnLabel = toDisplayPath(current.projectRoot, written.cnPath)
     const enLabel = toDisplayPath(current.projectRoot, written.enPath)
-    const replaceLabel = replace ? `，并替换了 template 中的 ${replacedCount} 处文本` : ''
+    const replaceLabel = replace ? `，并替换了 ${replacedCount} 处文本` : ''
     const done = `已写入 ${cnLabel} 与 ${enLabel}${replaceLabel}。目录不存在时已自动创建。`
     void panel.webview.postMessage({ type: 'done', message: done })
     const action = await vscode.window.showInformationMessage(done, '打开 cn.js')

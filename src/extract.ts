@@ -9,6 +9,7 @@ import {
   type TemplateChildNode,
   type TextNode,
 } from '@vue/compiler-dom'
+import { findClosingTag, scanCodeStrings } from './codeScan'
 import type { ChineseEntry, ExtractResult, Occurrence } from './types'
 import {
   compact,
@@ -22,6 +23,7 @@ import {
 
 const SKIP_ATTR = new Set(['class', 'style', 'key', 'ref', 'is', 'xmlns', 'slot'])
 const SKIP_TAGS = new Set(['script', 'style'])
+const SCRIPT_LANGS = new Set(['js', 'javascript', 'jsx', 'ts', 'typescript', 'tsx', 'mjs', 'cjs'])
 
 export class ExtractError extends Error {
   constructor(message: string) {
@@ -31,21 +33,14 @@ export class ExtractError extends Error {
 }
 
 export function extractChinese(source: string): ExtractResult {
-  const template = sliceTemplate(source)
-  if (!template) {
-    throw new ExtractError('这个 Vue 文件没有 <template>。')
+  const blocks = sliceSfcBlocks(source)
+  const template = blocks.find((block) => block.kind === 'template')
+  const scripts = blocks.filter((block) => block.kind === 'script')
+  if (!template && scripts.length === 0) {
+    throw new ExtractError('这个 Vue 文件没有 <template> 或 <script>。')
   }
-  if (template.lang && template.lang !== 'html') {
+  if (template?.lang && template.lang !== 'html' && scripts.length === 0) {
     throw new ExtractError(`暂不支持 <template lang="${template.lang}">，目前只提取 HTML 模板。`)
-  }
-  const base = template.offset
-
-  let ast: RootNode
-  try {
-    ast = parseTemplate(template.content, { comments: true })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    throw new ExtractError(`template 解析失败：${message}`)
   }
 
   const warnings: string[] = []
@@ -68,6 +63,54 @@ export function extractChinese(source: string): ExtractResult {
     sequence += 1
   }
 
+  if (template && (!template.lang || template.lang === 'html')) {
+    parseTemplateBlock(template, add, warnings)
+  } else if (template?.lang && template.lang !== 'html') {
+    warnings.push(`暂不支持 <template lang="${template.lang}">，已跳过模板。`)
+  }
+  for (const script of scripts) addScriptBlock(script, add, warnings)
+
+  return {
+    entries: [...grouped.values()],
+    warnings: [...new Set(warnings)],
+  }
+}
+
+export function extractJavaScript(source: string): ExtractResult {
+  const warnings: string[] = []
+  const grouped = new Map<string, ChineseEntry>()
+  let sequence = 1
+  const add = (zh: string, occurrence: Occurrence) => {
+    const text = zh.trim()
+    if (!text || !hasChinese(text)) return
+    const existing = grouped.get(text)
+    if (existing) {
+      existing.occurrences.push(occurrence)
+      return
+    }
+    grouped.set(text, { id: `t${sequence}`, zh: text, occurrences: [occurrence] })
+    sequence += 1
+  }
+  addCode(source, 0, add, warnings)
+  return {
+    entries: [...grouped.values()],
+    warnings: [...new Set(warnings)],
+  }
+}
+
+function parseTemplateBlock(
+  template: SfcBlock,
+  add: (zh: string, occurrence: Occurrence) => void,
+  warnings: string[],
+): void {
+  let ast: RootNode
+  try {
+    ast = parseTemplate(template.content, { comments: true })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new ExtractError(`template 解析失败：${message}`)
+  }
+  const base = template.offset
   const abs = (offset: number) => base + offset
 
   const walk = (node: RootNode | TemplateChildNode, preserveIndent: boolean) => {
@@ -152,19 +195,43 @@ export function extractChinese(source: string): ExtractResult {
   }
 
   walk(ast, false)
-  return {
-    entries: [...grouped.values()],
-    warnings: [...new Set(warnings)],
-  }
 }
 
-interface TemplateSlice {
+function addScriptBlock(
+  script: SfcBlock,
+  add: (zh: string, occurrence: Occurrence) => void,
+  warnings: string[],
+): void {
+  const lang = (script.lang ?? '').toLowerCase()
+  if (lang && !SCRIPT_LANGS.has(lang)) {
+    warnings.push(`暂不支持 <script lang="${script.lang}">，已跳过。`)
+    return
+  }
+  addCode(script.content, script.offset, add, warnings)
+}
+
+function addCode(
+  content: string,
+  offset: number,
+  add: (zh: string, occurrence: Occurrence) => void,
+  warnings: string[],
+): void {
+  const scanned = scanCodeStrings(content)
+  for (const hit of scanned.hits) {
+    add(hit.value, { kind: 'code', start: offset + hit.start, end: offset + hit.end })
+  }
+  warnings.push(...scanned.warnings)
+}
+
+interface SfcBlock {
+  kind: 'template' | 'script'
   content: string
   offset: number
   lang: string | null
 }
 
-function sliceTemplate(source: string): TemplateSlice | null {
+function sliceSfcBlocks(source: string): SfcBlock[] {
+  const blocks: SfcBlock[] = []
   let index = 0
   while (index < source.length) {
     if (source.startsWith('<!--', index)) {
@@ -181,21 +248,22 @@ function sliceTemplate(source: string): TemplateSlice | null {
       index += 1
       continue
     }
-    if (tag.tag !== 'template') {
-      const blockEnd = findTagEnd(source, tag.end, tag.tag)
-      if (blockEnd < 0) return null
-      index = blockEnd
-      continue
+    const contentEnd = tag.tag === 'script'
+      ? findClosingTag(source, tag.end, 'script')
+      : findTagEnd(source, tag.end, tag.tag)
+    if (contentEnd < 0) return blocks
+    if (tag.tag === 'template' || tag.tag === 'script') {
+      blocks.push({
+        kind: tag.tag,
+        content: source.slice(tag.end, contentEnd),
+        offset: tag.end,
+        lang: readLang(tag.attrs),
+      })
     }
-    const contentEnd = findTagEnd(source, tag.end, 'template')
-    if (contentEnd < 0) return null
-    return {
-      content: source.slice(tag.end, contentEnd),
-      offset: tag.end,
-      lang: readLang(tag.attrs),
-    }
+    const closer = readTag(source, contentEnd)
+    index = closer?.end ?? contentEnd
   }
-  return null
+  return blocks
 }
 
 function findTagEnd(source: string, contentStart: number, tagName: string): number {

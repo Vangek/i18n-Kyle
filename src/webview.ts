@@ -5,7 +5,7 @@ export function getWebviewHtml(nonce: string): string {
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>提取 Vue 中文</title>
+  <title>提取中文</title>
   <style nonce="${nonce}">
     :root { color-scheme: light dark; }
     body {
@@ -88,7 +88,7 @@ export function getWebviewHtml(nonce: string): string {
   </style>
 </head>
 <body>
-  <h1>提取 template 中文</h1>
+  <h1>提取中文</h1>
   <p class="source muted" id="source"></p>
   <div id="warnings"></div>
   <div id="status"></div>
@@ -99,7 +99,7 @@ export function getWebviewHtml(nonce: string): string {
   </div>
   <label class="check">
     <input id="replace" type="checkbox" />
-    <span>同时把 template 中的中文替换为 <code id="sample"></code>。可在编辑器里撤销。</span>
+    <span>同时把选中的中文替换为 i18n 调用，例如 <code id="sample"></code>。可在编辑器里撤销。</span>
   </label>
   <div class="toolbar">
     <button id="translateEn" type="button">DeepSeek 翻译空英文</button>
@@ -151,7 +151,8 @@ export function getWebviewHtml(nonce: string): string {
       const name = moduleInput.value.trim() || '模块'
       const first = rowsEl.querySelector('input.key')
       const key = (first && first.value.trim()) || 'brandName'
-      sampleEl.textContent = '{{ ' + state.i18nFunction + "('" + name + '.' + key + "') }}"
+      const call = state.i18nFunction + "('" + name + '.' + key + "')"
+      sampleEl.textContent = state.syntax === 'js' ? call : '{{ ' + call + ' }}'
     }
 
     function render() {

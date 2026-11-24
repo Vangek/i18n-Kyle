@@ -1,8 +1,8 @@
 {
   "name": "i18n-kyle",
   "displayName": "i18n Kyle：Vue 中文提取",
-  "description": "从 Vue 文件的 template 提取中文，生成 src/i18n/lang 下的 cn.js 与 en.js。",
-  "version": "0.2.0",
+  "description": "从 Vue 的 template、script，以及 JavaScript 文件中提取中文，生成 src/i18n/lang 下的 cn.js 与 en.js。",
+  "version": "0.2.1",
   "publisher": "Vangek",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -27,7 +27,7 @@
     "commands": [
       {
         "command": "i18nKyle.extractFromVue",
-        "title": "提取 Template 中文到 i18n",
+        "title": "提取中文到 i18n",
         "category": "i18n Kyle"
       },
       {
@@ -40,14 +40,14 @@
       "explorer/context": [
         {
           "command": "i18nKyle.extractFromVue",
-          "when": "resourceExtname == .vue",
+          "when": "resourceExtname =~ /\\.(vue|js|mjs|cjs)$/",
           "group": "navigation@20"
         }
       ],
       "editor/context": [
         {
           "command": "i18nKyle.extractFromVue",
-          "when": "resourceExtname == .vue",
+          "when": "resourceExtname =~ /\\.(vue|js|mjs|cjs)$/",
           "group": "navigation@20"
         }
       ]
@@ -58,7 +58,7 @@
         "i18nKyle.i18nFunction": {
           "type": "string",
           "default": "$t",
-          "description": "替换 template 中文时使用的函数名，例如 $t 会生成 {{ $t('模块.键') }}。"
+          "description": "替换中文时使用的函数名。模板文本会写成 {{ $t('模块.键') }}，script 和 JavaScript 里的字符串会写成 $t('模块.键')。"
         }
       }
     }

@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { extractChinese, ExtractError } from '../extract'
+import { extractChinese, extractJavaScript, ExtractError } from '../extract'
 import { assignKeys, toBaseKey } from '../keys'
 import { mergeEntries, parseLangFile, serializeLang } from '../langFile'
 import { assertSafeModuleName, defaultModuleName, findProjectRoot, resolveLangRoot } from '../paths'
@@ -36,7 +36,7 @@ const vueSource = [
   '',
 ].join('\n')
 
-test('提取 template 中文，并忽略 script、注释和 class', () => {
+test('提取 template 和 script 中的中文，并忽略注释和 class', () => {
   const result = extractChinese(vueSource)
   const texts = result.entries.map((entry) => entry.zh)
   assert.deepEqual(texts, [
@@ -50,11 +50,18 @@ test('提取 template 中文，并忽略 script、注释和 class', () => {
     '© {year} voyage 伊伊之',
     '个目的地',
     '已国际化',
+    '脚本里的中文不要提取',
   ])
   const explore = result.entries.find((entry) => entry.zh === '开始探索')
   assert.equal(explore?.occurrences.length, 2)
+  const scriptText = result.entries.find((entry) => entry.zh === '脚本里的中文不要提取')
+  assert.equal(scriptText?.occurrences[0]?.kind, 'code')
+  assert.equal(
+    vueSource.slice(scriptText?.occurrences[0]?.start ?? 0, scriptText?.occurrences[0]?.end ?? 0),
+    "'脚本里的中文不要提取'",
+  )
   assert.deepEqual(result.warnings, ["复杂表达式中的中文未提取：isEn ? '中文标题' : name"])
-  assert.equal(texts.some((text) => text.includes('脚本') || text.includes('注释') || text === '品牌'), false)
+  assert.equal(texts.some((text) => text.includes('注释') || text === '品牌'), false)
 })
 
 test('相同中文共用一个键，并按原文位置替换', () => {
@@ -81,7 +88,7 @@ test('相同中文共用一个键，并按原文位置替换', () => {
   assert.match(next, /:alt="\$t\('footer\.reMenMuDeDi'\)"/)
   assert.match(next, /\{\{ \$t\('footer\.jianTiZhongWen'\) \}\}/)
   assert.match(next, /class="品牌"/)
-  assert.match(next, /脚本里的中文不要提取/)
+  assert.match(next, /const msg = \$t\('footer\.[^']+'\)/)
   assert.match(next, /注释里的中文不要/)
   assert.match(next, /中文标题/)
   assert.doesNotMatch(next, />伊伊之</)
@@ -112,13 +119,118 @@ test('script 中的模板字符串和嵌套 template 不会切错', () => {
   const result = extractChinese(source)
   assert.deepEqual(
     result.entries.map((entry) => entry.zh),
-    ['真正的中文'],
+    ['真正的中文', '<template>脚本里的模板中文</template>'],
   )
 })
 
-test('没有 template、或不是 HTML 模板时给出明确错误', () => {
-  assert.throws(() => extractChinese('<script>const a = "中文"</script>\n'), ExtractError)
+test('没有 template 时仍提取 script，不支持的模板会跳过', () => {
+  const scriptOnly = extractChinese('<script>const a = "只有脚本中文"</script>\n')
+  assert.deepEqual(
+    scriptOnly.entries.map((entry) => entry.zh),
+    ['只有脚本中文'],
+  )
+  assert.deepEqual(extractChinese('<script>const a = 1</script>\n').entries, [])
   assert.throws(() => extractChinese('<template lang="pug">\np 中文\n</template>\n'), /pug/)
+  assert.throws(
+    () => extractChinese('<style>.标题 { color: red }</style>\n'),
+    (error: unknown) => error instanceof ExtractError && /没有 <template> 或 <script>/.test(String(error)),
+  )
+
+  const mixed = extractChinese(
+    '<template lang="pug">\np 中文\n</template>\n<script>const a = "脚本中文"</script>\n',
+  )
+  assert.deepEqual(
+    mixed.entries.map((entry) => entry.zh),
+    ['脚本中文'],
+  )
+  assert.match(mixed.warnings.join('\n'), /pug/)
+})
+
+test('template 与 script 中相同的中文共用一条，并按所在位置替换', () => {
+  const source = ['<template>', '  <p>开始探索</p>', '</template>', '<script setup>', "const label = '开始探索'", '</script>', ''].join('\n')
+  const result = extractChinese(source)
+  assert.deepEqual(
+    result.entries.map((entry) => entry.zh),
+    ['开始探索'],
+  )
+  assert.deepEqual(
+    result.entries[0].occurrences.map((item) => item.kind),
+    ['text', 'code'],
+  )
+  const call = buildCall('$t', 'footer', 'explore')
+  const next = applyReplacements(
+    source,
+    result.entries[0].occurrences.map((occurrence) => ({
+      start: occurrence.start,
+      end: occurrence.end,
+      insert: occurrenceInsert(occurrence, call),
+    })),
+  )
+  assert.match(next, /<p>\{\{ \$t\('footer\.explore'\) \}\}<\/p>/)
+  assert.match(next, /const label = \$t\('footer\.explore'\)/)
+})
+
+test('字符串里的 </script> 不会截断脚本，后面的模板仍会提取', () => {
+  const source = [
+    '<script>',
+    'const html = `</script>`',
+    "const title = '标题'",
+    '</script>',
+    '<template><p>模板中文</p></template>',
+    '',
+  ].join('\n')
+  const result = extractChinese(source)
+  assert.deepEqual(
+    result.entries.map((entry) => entry.zh),
+    ['模板中文', '标题'],
+  )
+})
+
+test('js 文件提取字符串，并跳过注释、import 和已有的 t 调用', () => {
+  const source = [
+    "import hello from './中文模块'",
+    "const skipped = $t('已包裹')",
+    "const also = t('函数t')",
+    "const title = '页面标题'",
+    'const quote = "双引号中文"',
+    'const block = `整段中文`',
+    'const mixed = `你好，${name}`',
+    "const inner = `count ${'个结果'}`",
+    '// 注释中文',
+    '/* 块注释中文 */',
+    'const re = /[\'"]/',
+    "const after = '正则之后的中文'",
+    'const ratio = width / height',
+    "const name = '除法之后的中文'",
+    '',
+  ].join('\n')
+  const result = extractJavaScript(source)
+  assert.deepEqual(
+    result.entries.map((entry) => entry.zh),
+    ['页面标题', '双引号中文', '整段中文', '个结果', '正则之后的中文', '除法之后的中文'],
+  )
+  assert.match(result.warnings.join('\n'), /模板字符串中的中文未提取/)
+  assert.equal(result.warnings.some((warning) => warning.includes('字符串和注释以外')), false)
+
+  const title = result.entries[0]
+  const next = applyReplacements(source, [
+    {
+      start: title.occurrences[0].start,
+      end: title.occurrences[0].end,
+      insert: occurrenceInsert(title.occurrences[0], buildCall('$t', 'page', 'title')),
+    },
+  ])
+  assert.match(next, /const title = \$t\('page\.title'\)/)
+  assert.match(next, /import hello from '\.\/中文模块'/)
+})
+
+test('字符串以外的中文会给出提示', () => {
+  const result = extractJavaScript("const 名称 = '值'\n")
+  assert.deepEqual(
+    result.entries.map((entry) => entry.zh),
+    ['值'],
+  )
+  assert.match(result.warnings.join('\n'), /字符串和注释以外/)
 })
 
 test('语言文件格式与 cn.js / en.js 示例一致', () => {
@@ -243,6 +355,8 @@ test('模块名默认取 Vue 文件名，index 则取父目录', () => {
   assert.equal(defaultModuleName('/app/src/components/UserProfile.vue'), 'userProfile')
   assert.equal(defaultModuleName('/app/src/components/user-profile.vue'), 'user-profile')
   assert.equal(defaultModuleName('/app/src/components/footer/index.vue'), 'footer')
+  assert.equal(defaultModuleName('/app/src/utils/format.js'), 'format')
+  assert.equal(defaultModuleName('/app/src/utils/index.js'), 'utils')
   assert.throws(() => assertSafeModuleName('../footer'), /路径/)
   assert.throws(() => assertSafeModuleName(''), /不能为空/)
   assert.equal(assertSafeModuleName(' footer '), 'footer')
